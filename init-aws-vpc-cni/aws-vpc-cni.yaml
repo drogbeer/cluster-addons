@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cni-update
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  namespace: default
+  name: cni-update
+rules:
+- apiGroups: ["", "rbac.authorization.k8s.io", "apps"] # "" indicates the core API group
+  resources: ["serviceaccounts", "clusterroles", "clusterrolebindings", "daemonsets", "namespaces", "nodes", "pods"]
+  verbs: ["get", "patch", "list", "watch", "get", "update"]
+- apiGroups: ["crd.k8s.amazonaws.com", "apiextensions.k8s.io"]
+  resources: ["eniconfigs", "customresourcedefinitions"]
+  verbs: ["get", "patch", "list", "watch", "get", "update"]
+- apiGroups: ["extensions"]
+  resources: ["*"]
+  verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: cni-update
+subjects:
+  - kind: ServiceAccount
+    # Reference to upper's `metadata.name`
+    name: cni-update
+    # Reference to upper's `metadata.namespace`
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: cni-update
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cni-update-script
+data:
+  script.sh: |
+    #!/usr/bin/env bash 
+
+    set -euo pipefail  
+
+    curl -v --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default/
+
+    HELM=$(which helm)
+    KUBECTL=$(which kubectl)
+
+    for resource in daemonSet serviceAccount clusterrole clusterrolebinding; do 
+        echo "Setting annotations and labels on $resource/aws-node" 
+        kubectl -n kube-system annotate --overwrite $resource aws-node meta.helm.sh/release-name=aws-vpc-cni 
+        kubectl -n kube-system annotate --overwrite $resource aws-node meta.helm.sh/release-namespace=kube-system 
+        kubectl -n kube-system label --overwrite $resource aws-node app.kubernetes.io/managed-by=Helm 
+    done
+    kubectl label --overwrite crd eniconfigs.crd.k8s.amazonaws.com app.kubernetes.io/managed-by=Helm
+    kubectl annotate --overwrite crd eniconfigs.crd.k8s.amazonaws.com meta.helm.sh/release-name=aws-vpc-cni
+    kubectl annotate --overwrite crd eniconfigs.crd.k8s.amazonaws.com meta.helm.sh/release-namespace=kube-system
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cni-update
+spec:
+  template:
+    spec:
+      serviceAccount: cni-update
+      serviceAccountName: cni-update
+      volumes:
+      - name: cni-update-script
+        configMap:
+          name: cni-update-script
+          defaultMode: 0777
+      containers:
+      - name: cni-update
+        image: dtzar/helm-kubectl:3.6.2
+        volumeMounts:
+          - mountPath: /cni-update-script
+            name: cni-update-script
+        command:
+        - /bin/sh
+        - -c
+        - |
+          /cni-update-script/script.sh
+      restartPolicy: Never
+  backoffLimit: 0
