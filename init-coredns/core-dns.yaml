@@ -84,7 +84,7 @@ data:
         sleep 10
         # Install a chart that fleet will take ownership of 
         $HELM repo add coredns https://coredns.github.io/helm 
-        $HELM upgrade --install coredns -n kube-system coredns/coredns --set service.clusterIP="${CLUSTER_IP}" --set fullnameOverride="coredns"
+        $HELM upgrade --install coredns -n kube-system coredns/coredns --set service.clusterIP="${CLUSTER_IP}" --set fullnameOverride="coredns" --force
     fi 
 ---
 apiVersion: batch/v1
