@@ -47,45 +47,27 @@ data:
     
     COREDNS_IP=$(dig +short coredns.github.io | head -n 1)
     KUBE_IP=$(dig +short kubernetes.default | head -n 1)
-    HELM_REPO_IP=$(dig +short charts.helm.sh | head -n 1)
     GITHUB_IP=$(dig +short github.com | head -n 1)
     GITHUB_USER_IP=$(dig +short github-releases.githubusercontent.com | head -n 1)
     echo "$COREDNS_IP coredns.github.io" >> /etc/hosts
     echo "$KUBE_IP kubernetes.default" >> /etc/hosts
-    echo "$HELM_REPO_IP charts.helm.sh" >> /etc/hosts
     echo "$GITHUB_IP github.com" >> /etc/hosts
     echo "$GITHUB_USER_IP github-releases.githubusercontent.com" >> /etc/hosts
     cat /etc/hosts
 
     curl -v --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default/
 
-    HELM=$(which helm)
-    KUBECTL=$(which kubectl) 
+    KUBECTL=$(which kubectl)
 
-    if [[ $(helm ls -A | grep "coredns" | awk '{print $1}') == "coredns" ]] 
-    then
-        echo "Chart is already installed"
-        exit 0
-    else
-        for resource in deployment serviceAccount configMap; do 
-            echo "Setting annotations and labels on $resource/coredns" 
-            kubectl -n kube-system annotate --overwrite $resource coredns meta.helm.sh/release-name=coredns 
-            kubectl -n kube-system annotate --overwrite $resource coredns meta.helm.sh/release-namespace=kube-system 
-            kubectl -n kube-system label --overwrite $resource coredns app.kubernetes.io/managed-by=Helm 
-        done 
+    for resource in deployment serviceAccount configMap; do 
+        echo "Setting annotations and labels on $resource/coredns" 
+        kubectl -n kube-system annotate --overwrite $resource coredns meta.helm.sh/release-name=coredns 
+        kubectl -n kube-system annotate --overwrite $resource coredns meta.helm.sh/release-namespace=kube-system 
+        kubectl -n kube-system label --overwrite $resource coredns app.kubernetes.io/managed-by=Helm 
+    done 
 
-        # Get the clusterIP for the Helm install 
-        CLUSTER_IP=$(kubectl get svc -n kube-system kube-dns -o jsonpath='{.spec.clusterIP}')
-        # Remove the service because patching it is a pain. 
-        $KUBECTL -n kube-system delete service kube-dns
-        $KUBECTL -n kube-system delete deployment coredns
-        # Service resources can take a few seconds to delete, deletion has exceeded 5s on occasion. 
-        # If the service has not deleted in time, the chart installation will fail.
-        sleep 10
-        # Install a chart that fleet will take ownership of 
-        $HELM repo add coredns https://coredns.github.io/helm 
-        $HELM upgrade --install coredns -n kube-system coredns/coredns --set service.clusterIP="${CLUSTER_IP}" --set fullnameOverride="coredns" --force
-    fi 
+    $KUBECTL -n kube-system delete service kube-dns
+    $KUBECTL -n kube-system delete deployment coredns
 ---
 apiVersion: batch/v1
 kind: Job
