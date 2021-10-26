@@ -95,4 +95,4 @@ spec:
         - |
           /coredns-update-script/script.sh
       restartPolicy: Never
-  backoffLimit: 0
+  backoffLimit: 6
